@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>おつかい最短ルート</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ctext%20y%3D%2252%22%20font-size%3D%2252%22%3E%F0%9F%9B%92%3C%2Ftext%3E%3C%2Fsvg%3E">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&family=BIZ+UDPGothic:wght@400;700&family=M+PLUS+1+Code:wght@400;700&display=swap" rel="stylesheet">
+<style>
+[hidden]{display:none!important}
+/* Layout: 1画面目＝お店と献立を選ぶ。2画面目＝店内マップが主役、右に買い物メモ（スマホでは下）。結果はコイン演出→レシート。明るいスーパーの単一テーマ */
+:root{
+  --bg:#E8EEE9; --paper:#FFFFFF; --ink:#1E2A23; --muted:#5D6C63; --line:#CAD5CD;
+  --floor:#F7F9F5; --tile:#E6ECE5; --soft:#FFF6CC;
+  --route:#E4572E; --best:#1F7A72; --tag:#FFD23F; --warn:#B23A1E;
+  --font-display:"Zen Maru Gothic","Hiragino Maru Gothic ProN",sans-serif;
+  --font-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic",sans-serif;
+  --font-mono:"M PLUS 1 Code",ui-monospace,Menlo,monospace;
+  color-scheme: light;
+}
+html,body{background:var(--bg);color:var(--ink)}
+body{font-family:var(--font-body);font-size:15px;line-height:1.6}
+.app{max-width:1180px;margin:0 auto;padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 16px}
+h1{font-family:var(--font-display);font-weight:900;font-size:clamp(26px,4vw,38px);line-height:1.1;margin:0;letter-spacing:.02em;text-wrap:balance}
+.lead{margin:0;color:var(--muted);width:100%}
+.view{display:flex;flex-direction:column;gap:16px}
+
+/* 選択画面 */
+.step{background:var(--paper);border-radius:14px;padding:16px}
+.step-h{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-family:var(--font-display);font-weight:900;font-size:20px}
+.step-h .n{width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:15px;flex:none}
+.stores{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.stores{grid-template-columns:minmax(0,1fr)}}
+.pick{font:inherit;color:var(--ink);text-align:left;background:var(--paper);border:2px solid var(--line);border-radius:12px;padding:10px;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-width:0}
+.pick:hover{border-color:var(--muted)}
+.pick[aria-pressed="true"]{border-color:var(--ink);background:var(--soft);box-shadow:0 0 0 2px var(--ink) inset}
+.pick .mini{display:block;width:100%;height:auto;border-radius:6px;background:var(--floor)}
+.pick .ttl{font-family:var(--font-display);font-weight:900;font-size:17px;line-height:1.3}
+.pick .kind{font-size:12px;font-weight:700;color:var(--muted)}
+.pick .desc{font-size:13px;color:var(--muted)}
+.pick .meta{display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-size:11px;font-weight:700;border-radius:99px;padding:1px 8px;background:var(--bg);white-space:nowrap}
+.menu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.menu-grid .pick .emos{font-size:20px;letter-spacing:2px;line-height:1.3;word-break:break-all}
+.stars{color:#C98A00;font-size:13px;letter-spacing:1px}
+.chars{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.char{width:60px;height:60px;border-radius:50%;border:2px solid var(--line);background:var(--paper);font-size:32px;line-height:1;display:grid;place-items:center;cursor:pointer;padding:0;overflow:hidden;color:var(--ink)}
+.char:hover{border-color:var(--muted)}
+.char[aria-pressed="true"]{border-color:var(--ink);background:var(--soft);box-shadow:0 0 0 3px var(--tag)}
+.char img{width:100%;height:100%;object-fit:cover;display:block}
+.char.add{border-style:dashed;font:700 11px/1.3 var(--font-body);color:var(--muted);text-align:center}
+.char-note{font-size:12px;color:var(--muted);margin:10px 0 0}
+.daily{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;background:var(--tag);color:var(--ink);border-radius:14px;padding:14px 16px}
+.daily-l{flex:1;min-width:220px;display:flex;flex-direction:column;gap:2px}
+.daily-tag{font:900 12px var(--font-display);letter-spacing:.1em}
+.daily b{font:900 20px/1.3 var(--font-display)}
+.daily small{font-size:12px;color:var(--ink);opacity:.75}
+.daily .emos{font-size:20px;letter-spacing:2px}
+.daily-r{display:flex;align-items:center;gap:12px}
+.daily-best{font:900 14px var(--font-display)}
+.daily .btn-start{background:var(--ink);color:#fff}
+.opts{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+.opt{font:700 13px var(--font-body);color:#fff;background:transparent;border:1.5px solid rgba(255,255,255,.45);border-radius:99px;padding:5px 12px;cursor:pointer}
+.opt[aria-pressed="true"]{background:var(--tag);color:var(--ink);border-color:var(--tag)}
+.timer{display:flex;align-items:center;gap:10px;margin-top:12px}
+.tbar{flex:1;height:10px;border-radius:99px;background:var(--tile);overflow:hidden}
+.tbar i{display:block;height:100%;width:100%;background:var(--best);transition:width .1s linear}
+.timer.low .tbar i{background:var(--route)}
+#tleft{font:900 18px var(--font-display);font-variant-numeric:tabular-nums;min-width:3.5em;text-align:right}
+.timer.low #tleft{color:var(--route)}
+.tools{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-bottom:-4px}
+.btn.tool{background:var(--paper);border-color:var(--line);font-size:14px;padding:6px 12px;display:inline-flex;align-items:center;gap:6px}
+.btn.tool:hover{border-color:var(--ink)}
+#charNow{font-size:20px;line-height:1}
+.modal{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:rgba(30,42,35,.5);padding-block:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.modal-card{background:var(--paper);border-radius:16px;padding:18px;width:min(720px,100%);max-height:100%;overflow:auto;box-shadow:0 16px 48px rgba(0,0,0,.25)}
+.modal-card.narrow{width:min(420px,100%)}
+.modal-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.modal-h h2{margin:0;font:900 20px var(--font-display)}
+.chip.best{background:var(--soft);color:var(--ink)}
+.chip.kami{background:var(--tag);color:var(--ink)}
+.records{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:16px}
+@media (max-width:760px){.records{grid-template-columns:minmax(0,1fr)}}
+.rec-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.rec-stat{background:var(--floor);border-radius:10px;padding:10px 12px}
+.rec-stat b{display:block;font:900 28px/1.1 var(--font-display);font-variant-numeric:tabular-nums}
+.rec-stat b small{font-size:14px;color:var(--muted);margin-left:2px}
+.rec-stat span{font-size:11px;color:var(--muted);letter-spacing:.06em}
+.bar{height:8px;border-radius:99px;background:var(--tile);margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--tag);border-radius:99px}
+.recent h3{font:700 13px var(--font-display);color:var(--muted);letter-spacing:.08em;margin:0 0 6px}
+.recent ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;font-family:var(--font-mono);font-size:12px}
+.recent li{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px dashed var(--line)}
+.recent li .what{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-body)}
+.recent li .pct{font-weight:700;min-width:3.5em;text-align:right}
+.recent li .pct.k{color:#C98A00}
+.recent .empty{color:var(--muted);font-size:13px;font-family:var(--font-body);border:0}
+.rec-note{font-size:11px;color:var(--muted);margin:8px 0 0}
+.rv-best{display:inline-block;margin-top:6px;background:var(--tag);color:var(--ink);font:900 13px var(--font-display);padding:2px 10px;border-radius:99px;opacity:0}
+.reveal.done .rv-best{opacity:1;transition:opacity .3s .4s}
+.startbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;background:var(--ink);color:#fff;border-radius:14px;padding:14px 16px}
+.startbar p{margin:0;flex:1;min-width:200px}
+.startbar b{font-family:var(--font-display)}
+.btn-start{font:900 18px var(--font-display);background:var(--tag);color:var(--ink);border:0;border-radius:12px;padding:12px 26px;cursor:pointer}
+
+/* ゲーム画面 */
+.gamebar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;background:var(--paper);border-radius:14px;padding:10px 14px}
+.gamebar p{margin:0;flex:1;min-width:220px}
+.gamebar b{font-family:var(--font-display);font-size:17px}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+@media (max-width:880px){.main{grid-template-columns:minmax(0,1fr)}}
+.map-wrap{background:var(--paper);border-radius:14px;padding:10px;min-width:0;position:relative}
+.map-wrap svg{display:block;width:100%;height:auto;user-select:none;-webkit-user-select:none}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;color:var(--muted);padding:8px 6px 2px}
+.legend i{display:inline-block;width:26px;height:0;border-top:4px solid var(--route);vertical-align:middle;margin-right:6px;border-radius:2px}
+.legend i.best{border-top:3px dashed var(--best)}
+.panel{display:flex;flex-direction:column;gap:12px;min-width:0}
+.card{background:var(--paper);border-radius:14px;padding:14px 16px}
+.card h2{font-family:var(--font-display);font-weight:700;font-size:13px;letter-spacing:.08em;color:var(--muted);margin:0 0 8px}
+.stats{display:flex;align-items:baseline;gap:18px}
+.stat b{font-family:var(--font-display);font-weight:900;font-size:34px;line-height:1;font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:11px;color:var(--muted);letter-spacing:.06em}
+.stat.par b{color:var(--best)}
+.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.list button{width:100%;font:inherit;display:grid;grid-template-columns:26px 28px 1fr auto;align-items:center;gap:6px;text-align:left;background:none;border:1px solid transparent;border-radius:8px;padding:4px 6px;cursor:pointer;color:var(--ink)}
+.list button:hover:not(:disabled){background:var(--floor);border-color:var(--line)}
+.list button:disabled{cursor:default}
+.num{width:22px;height:22px;border-radius:50%;border:2px dashed var(--line);display:grid;place-items:center;font-family:var(--font-display);font-weight:900;font-size:12px}
+.picked .num{background:var(--route);border:2px solid var(--route);color:#fff}
+.picked .nm{text-decoration:line-through;text-decoration-color:var(--route);text-decoration-thickness:2px;color:var(--muted)}
+.emo{font-size:22px;text-align:center}
+.pills{display:flex;gap:3px}
+.pill{font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+.pill.frozen{color:#2F6DB5}.pill.fragile{color:var(--warn)}.pill.heavy{color:#6A5A2E}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.btn{font:inherit;font-weight:700;border:2px solid var(--ink);background:var(--paper);color:var(--ink);border-radius:10px;padding:7px 12px;cursor:pointer}
+.btn.primary{background:var(--ink);color:#fff;flex:1}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--best);outline-offset:2px}
+.rules{margin:0;padding-left:1.2em;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.rules b{color:var(--ink)}
+.receipt{font-family:var(--font-mono);font-size:13px;background:var(--paper);padding:18px 18px 22px;border-radius:2px;box-shadow:0 1px 0 var(--line);position:relative}
+.receipt::after{content:"";position:absolute;left:0;right:0;bottom:-8px;height:8px;background:linear-gradient(-45deg,transparent 6px,var(--paper) 0) 0 0/12px 8px,linear-gradient(45deg,transparent 6px,var(--paper) 0) 0 0/12px 8px}
+.receipt .shop{text-align:center;font-weight:700;font-size:15px}
+.receipt .date{text-align:center;color:var(--muted);font-size:11px}
+.receipt hr{border:0;border-top:1px dashed var(--muted);margin:8px 0}
+.row{display:flex;gap:6px;align-items:baseline}
+.row .dots{flex:1;border-bottom:1px dotted var(--muted);transform:translateY(-4px)}
+.row .v{font-variant-numeric:tabular-nums}
+.row.warn{color:var(--warn)}
+.row.total{font-weight:700;font-size:15px}
+.grade{text-align:center;font-family:var(--font-display);font-weight:900;font-size:26px;margin:6px 0 0}
+.grade small{display:block;font-size:13px;font-weight:700;color:var(--muted)}
+.bestorder{font-size:11px;color:var(--muted);margin-top:8px;line-height:1.7}
+.marker{cursor:pointer}
+.marker.off{cursor:default}
+
+/* 結果演出 */
+.reveal{position:absolute;inset:0;display:grid;place-items:center;background:rgba(30,42,35,.55);border-radius:14px;cursor:pointer;z-index:5;padding:12px}
+.reveal-card{position:relative;background:var(--paper);border-radius:18px;padding:20px 28px 14px;text-align:center;width:min(320px,100%);box-shadow:0 12px 40px rgba(0,0,0,.25);animation:pop .3s ease-out}
+@keyframes pop{from{transform:scale(.85);opacity:0}to{transform:scale(1);opacity:1}}
+.coins{display:flex;justify-content:center;align-items:center;gap:10px;perspective:400px;height:76px}
+.coin{display:block;width:54px;height:54px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#FFF3B0,#F2C230 45%,#C9971C);border:3px solid #B5841A;color:#8A5E00;font:900 26px/48px var(--font-display);animation:spin 1.5s cubic-bezier(.15,.6,.3,1) both}
+.coin:nth-child(2){width:68px;height:68px;font-size:32px;line-height:62px;animation-delay:.08s}
+.coin:nth-child(3){animation-delay:.16s}
+@keyframes spin{from{transform:rotateY(0)}to{transform:rotateY(2880deg)}}
+.ching-text{font:900 30px/1.2 var(--font-display);color:var(--route);opacity:0;margin-top:4px}
+.score{font:900 64px/1 var(--font-display);font-variant-numeric:tabular-nums;color:var(--ink)}
+.score small{font-size:28px;margin-left:2px}
+.rv-label{font-size:12px;color:var(--muted);letter-spacing:.08em}
+.rv-grade{font:900 22px/1.3 var(--font-display);margin-top:6px;opacity:0}
+.rv-sub{font-family:var(--font-mono);font-size:13px;color:var(--muted);opacity:0}
+.rv-hint{font-size:11px;color:var(--muted);margin-top:10px;opacity:0}
+.burst{position:absolute;left:50%;top:40%;width:140px;height:140px;margin:-70px 0 0 -70px;border-radius:50%;border:8px solid var(--tag);opacity:0;pointer-events:none}
+.reveal.done .ching-text{animation:ching .45s cubic-bezier(.3,1.6,.5,1) forwards}
+.reveal.done .score{animation:bump .45s ease-out}
+.reveal.done .burst{animation:burst .7s ease-out}
+.reveal.done .rv-grade,.reveal.done .rv-sub,.reveal.done .rv-hint{opacity:1;transition:opacity .3s .25s}
+@keyframes ching{0%{opacity:0;transform:scale(.3) rotate(-10deg)}100%{opacity:1;transform:scale(1) rotate(-4deg)}}
+@keyframes bump{0%{transform:scale(1.4);color:#E4572E}100%{transform:scale(1)}}
+@keyframes burst{0%{transform:scale(.2);opacity:1}100%{transform:scale(2.6);opacity:0}}
+@media (prefers-reduced-motion:reduce){.coin,.reveal-card,.reveal.done .ching-text,.reveal.done .score,.reveal.done .burst{animation:none}.reveal.done .ching-text{opacity:1}}
+</style>
+
+<div class="app">
+  <header>
+    <h1>おつかい最短ルート</h1>
+    <p class="lead">お店と今夜の献立を選んだら、材料をなるべく少ない歩数で集めてレジへ。</p>
+  </header>
+
+  <!-- 1画面目：お店と献立を選ぶ -->
+  <div class="view" id="setupView">
+    <div class="tools">
+      <button class="btn tool" id="openChar"><span id="charNow">🐱</span> キャラを変える</button>
+      <button class="btn tool" id="openRec">これまでの記録</button>
+    </div>
+
+    <div class="modal" id="recModal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="recTitle">
+        <div class="modal-h"><h2 id="recTitle">これまでの記録</h2><button class="btn" data-close>閉じる</button></div>
+        <div class="records">
+          <div>
+            <div class="rec-grid" id="recStats"></div>
+            <p class="rec-note" id="recNote">記録を読み込んでいます…</p>
+          </div>
+          <div class="recent">
+            <h3>最近のおつかい</h3>
+            <ol id="recList"></ol>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="charModal" hidden>
+      <div class="modal-card narrow" role="dialog" aria-modal="true" aria-labelledby="charTitle">
+        <div class="modal-h"><h2 id="charTitle">だれがおつかいに行く？</h2><button class="btn" data-close>閉じる</button></div>
+        <div class="chars" id="charPick"></div>
+        <input type="file" id="photoIn" accept="image/*" hidden>
+        <p class="char-note">「写真」を選ぶと自分の顔をアイコンにできます。写真はこのブラウザの中だけで使われ、どこにも送られません。</p>
+      </div>
+    </div>
+
+    <section class="daily" id="daily"></section>
+
+    <section class="step">
+      <h2 class="step-h"><span class="n">1</span>どのお店に行く？</h2>
+      <div class="stores" id="storePick"></div>
+    </section>
+    <section class="step">
+      <h2 class="step-h"><span class="n">2</span>今夜の献立は？</h2>
+      <div class="menu-grid" id="menuPick"></div>
+    </section>
+    <div class="startbar">
+      <div class="opts">
+        <button class="opt" id="optShuffle" aria-pressed="false">🔀 売り場を毎回シャッフル</button>
+        <button class="opt" id="optTimer" aria-pressed="false">⏱ 制限時間あり</button>
+      </div>
+      <p id="startSummary"></p>
+      <button class="btn-start" id="startBtn">おつかいスタート</button>
+    </div>
+  </div>
+
+  <!-- 2画面目：ルートを決めて歩く -->
+  <div class="view" id="gameView" hidden>
+    <div class="gamebar">
+      <p id="gameTitle"></p>
+      <button class="btn" id="backBtn">お店・献立を選びなおす</button>
+    </div>
+    <div class="main">
+      <div class="map-wrap">
+        <svg id="map" role="img" aria-label="スーパーの店内マップ"></svg>
+        <div class="reveal" id="reveal" hidden>
+          <div class="reveal-card">
+            <span class="burst"></span>
+            <div class="coins"><span class="coin">¥</span><span class="coin">¥</span><span class="coin">¥</span></div>
+            <div class="ching-text">チャキーン！</div>
+            <div class="score"><span id="rvPct">00</span><small>%</small></div>
+            <div class="rv-label">すっきり度</div>
+            <div class="rv-grade" id="rvGrade"></div>
+            <div class="rv-sub" id="rvSub"></div>
+            <div class="rv-best" id="rvBest" hidden>自己ベスト更新！</div>
+            <div class="rv-hint">タップで閉じる</div>
+          </div>
+        </div>
+        <div class="legend"><span><i></i>あなたのルート</span><span><i class="best"></i>最短ルート（答え合わせ後）</span><span>1マス＝1歩</span></div>
+      </div>
+
+      <div class="panel">
+        <section class="card">
+          <div class="stats">
+            <div class="stat"><b id="steps">0</b><span>いまの歩数</span></div>
+            <div class="stat"><b id="got">0/0</b><span>カゴの中</span></div>
+            <div class="stat par"><b id="par">–</b><span>目標（最短）</span></div>
+          </div>
+          <div class="timer" id="timer" hidden><div class="tbar"><i id="tfill"></i></div><span id="tleft"></span></div>
+        </section>
+
+        <section class="card">
+          <h2>買い物メモ</h2>
+          <ul class="list" id="list"></ul>
+          <div class="btns">
+            <button class="btn" id="undo">1つ戻す</button>
+            <button class="btn" id="reset">やり直し</button>
+            <button class="btn primary" id="go">レジへ向かう</button>
+          </div>
+        </section>
+
+        <section class="receipt" id="result" hidden></section>
+
+        <section class="card">
+          <h2>スーパーのおきて</h2>
+          <ul class="rules" id="rules"></ul>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const C = 48, CRUSH = 20;
+const SEC = {
+  Y:{n:"野菜",c:"#A9D29A"}, K:{n:"果物",c:"#F6C083"}, N:{n:"精肉",c:"#EE9E98"}, S:{n:"鮮魚",c:"#9DC3E6"},
+  T:{n:"豆腐・みそ",c:"#E6DCC0"}, D:{n:"乳製品・卵",c:"#F3E596"},
+  C:{n:"調味料",c:"#D4B28F"}, R:{n:"米・乾物",c:"#E0CDA6"}, O:{n:"お菓子",c:"#F0B6CF"},
+  B:{n:"パン",c:"#EACF9F"}, J:{n:"飲料",c:"#A6DAD7"}, Z:{n:"冷凍",c:"#C3DBF7"},
+  H:{n:"お惣菜",c:"#F2C9A0"}, P:{n:"日用品",c:"#D5D0E6"}
+};
+// 商品カタログ（並び順＝売り場の中での並び順）
+const ITEMS = {
+  onion:{n:"たまねぎ",e:"🧅",s:"Y"}, carrot:{n:"にんじん",e:"🥕",s:"Y"}, potato:{n:"じゃがいも",e:"🥔",s:"Y"},
+  cabbage:{n:"キャベツ",e:"🥬",s:"Y"}, moyashi:{n:"もやし",e:"🌱",s:"Y"}, cucumber:{n:"きゅうり",e:"🥒",s:"Y"}, negi:{n:"長ねぎ",e:"🌿",s:"Y"},
+  pork:{n:"豚こま",e:"🐷",s:"N"}, beef:{n:"牛薄切り",e:"🥩",s:"N"}, mince:{n:"合いびき肉",e:"🍖",s:"N"}, chicken:{n:"鶏もも",e:"🍗",s:"N"}, bacon:{n:"ベーコン",e:"🥓",s:"N"},
+  salmon:{n:"鮭",e:"🐟",s:"S"}, tuna:{n:"まぐろ",e:"🍣",s:"S"}, ebi:{n:"えび",e:"🦐",s:"S"},
+  tofu:{n:"豆腐",e:"⬜",s:"T"}, shirataki:{n:"しらたき",e:"🪢",s:"T"}, miso:{n:"みそ",e:"🥣",s:"T"},
+  egg:{n:"卵",e:"🥚",s:"D",t:["fragile"]}, milk:{n:"牛乳",e:"🥛",s:"D"}, butter:{n:"バター",e:"🧈",s:"D"}, cheese:{n:"チーズ",e:"🧀",s:"D"},
+  roux:{n:"カレールー",e:"🍛",s:"C"}, stew:{n:"シチューの素",e:"🍲",s:"C"}, shoyu:{n:"しょうゆ",e:"🫙",s:"C"}, mirin:{n:"みりん",e:"🍶",s:"C"},
+  ketchup:{n:"ケチャップ",e:"🍅",s:"C"}, mayo:{n:"マヨネーズ",e:"🧴",s:"C"}, sauce:{n:"お好みソース",e:"🫗",s:"C"}, sushisu:{n:"すし酢",e:"🧂",s:"C"},
+  rice:{n:"米 5kg",e:"🍚",s:"R",t:["heavy"]}, pasta:{n:"パスタ",e:"🍝",s:"R"}, nori:{n:"焼きのり",e:"🍙",s:"R"}, flour:{n:"お好み焼き粉",e:"🌾",s:"R"}, panko:{n:"パン粉",e:"🫓",s:"R"},
+  bread:{n:"食パン",e:"🍞",s:"B"},
+  water:{n:"水 2L",e:"💧",s:"J",t:["heavy"]}, beer:{n:"ビール6缶",e:"🍺",s:"J",t:["heavy"]},
+  ice:{n:"アイス",e:"🍨",s:"Z",t:["frozen"]}, udon:{n:"冷凍うどん",e:"🍜",s:"Z",t:["frozen"]}, gyoza:{n:"冷凍餃子",e:"🥟",s:"Z",t:["frozen"]}
+};
+const MENUS = [
+  {id:"yasaiitame",n:"野菜炒め",items:["cabbage","moyashi","carrot","pork","shoyu"]},
+  {id:"yakizakana",n:"焼き魚定食",items:["salmon","miso","tofu","negi","rice"]},
+  {id:"nikujaga",n:"肉じゃが",items:["potato","carrot","onion","beef","shirataki","shoyu","mirin"]},
+  {id:"napolitan",n:"ナポリタン",items:["pasta","onion","bacon","ketchup","cheese"]},
+  {id:"stew",n:"クリームシチュー",items:["chicken","potato","carrot","onion","milk","butter","stew","bread"]},
+  {id:"gyoza",n:"餃子パーティー",items:["gyoza","beer","cucumber","rice","ice"]},
+  {id:"hamburg",n:"ハンバーグ",items:["mince","onion","panko","egg","milk","ketchup","water"]},
+  {id:"oyakodon",n:"親子丼",items:["chicken","onion","egg","negi","shoyu","mirin","rice"]},
+  {id:"okonomi",n:"お好み焼き",items:["flour","cabbage","pork","egg","sauce","mayo","beer"]},
+  {id:"curry",n:"カレー＋アイス",items:["onion","carrot","potato","pork","roux","rice","egg","ice"]},
+  {id:"sukiyaki",n:"すき焼き",items:["beef","negi","tofu","shirataki","egg","shoyu","udon","beer"]},
+  {id:"temaki",n:"手巻き寿司＋アイス",items:["tuna","salmon","nori","rice","cucumber","egg","sushisu","ice"]}
+];
+const has = (id,t) => (ITEMS[id].t||[]).includes(t);
+MENUS.forEach(m=>{
+  const frozen = m.items.some(id=>has(id,"frozen"));
+  const crush = m.items.some(id=>has(id,"fragile")) && m.items.some(id=>has(id,"heavy"));
+  m.stars = 1 + (frozen?1:0) + (crush?1:0);
+  m.rules = [frozen?"冷凍あり":"", crush?"卵×重いもの":""].filter(Boolean);
+});
+
+const STORES = [
+  {id:"small", n:"まちかどマート", kind:"小さなスーパー", desc:"駅前の小さなお店。通路が少なくて迷いにくい。", melt:10, start:[8,0], end:[8,10], map:[
+    "YYYYYYYNNNNNN",
+    "............S",
+    ".CC.RR.TT...S",
+    ".CC.RR.TT...S",
+    ".CC.RR.ZZ...D",
+    ".CC.BB.ZZ...D",
+    "............D",
+    ".JJJ..OOO...D",
+    "............."
+  ]},
+  {id:"medium", n:"おつかいマート", kind:"ふつうのスーパー", desc:"よくある広さ。ゴンドラの表と裏、どちらから取るかがカギ。", melt:12, start:[10,0], end:[10,12], map:[
+    "YYYYYYYYNNNNNSSSS",
+    "................T",
+    "..CC..RR..JJ....T",
+    "..CC..RR..JJ.HH.T",
+    "..CC..RR..OO.HH.T",
+    "..CC..BB..ZZ.HH.D",
+    "..KK..OO..ZZ.HH.D",
+    "..KK..OO..ZZ....D",
+    "................D",
+    "................D",
+    "................."
+  ]},
+  {id:"large", n:"メガおつかいマート", kind:"大型スーパー", desc:"売り場が広くて通路も多い。回る順番で大きく差がつく。", melt:16, start:[12,0], end:[12,16], map:[
+    "YYYYYYYYYYKKKKNNNNNNN",
+    "....................S",
+    "..CC..RR..JJ..PP....S",
+    "..CC..RR..JJ..PP.HH.S",
+    "..CC..RR..JJ..PP.HH.T",
+    "..CC..RR..JJ..PP.HH.T",
+    ".................HH.T",
+    "..OO..BB..PP..ZZ.HH.D",
+    "..OO..BB..PP..ZZ.HH.D",
+    "..OO..BB..PP..ZZ....D",
+    "..OO..BB..PP..ZZ....D",
+    ".....................",
+    "....................."
+  ]}
+];
+
+// ---- お店ごとの下ごしらえ（売り場のかたまり・商品の位置） ----
+function components(map){
+  const H=map.length, W=map[0].length, seen=new Set(), out=[];
+  for (let r=0;r<H;r++) for (let c=0;c<W;c++){
+    const ch=map[r][c]; if (ch==="."||seen.has(r*W+c)) continue;
+    const b={ch,r0:r,r1:r,c0:c,c1:c}, stack=[[r,c]]; seen.add(r*W+c);
+    while (stack.length){
+      const [y,x]=stack.pop();
+      b.r0=Math.min(b.r0,y); b.r1=Math.max(b.r1,y); b.c0=Math.min(b.c0,x); b.c1=Math.max(b.c1,x);
+      for (const [dy,dx] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const ny=y+dy, nx=x+dx;
+        if (ny<0||ny>=H||nx<0||nx>=W||map[ny][nx]!==ch||seen.has(ny*W+nx)) continue;
+        seen.add(ny*W+nx); stack.push([ny,nx]);
+      }
+    }
+    out.push(b);
+  }
+  return out;
+}
+// ---- 配置シャッフル（壁ぎわの生鮮は固定、真ん中のゴンドラの売り場を入れ替える） ----
+const MOVABLE=new Set(["C","R","J","Z","B","O","P","K","H"]);
+function rng(seed){
+  let a=seed>>>0;
+  return ()=>{ a=(a+0x6D2B79F5)|0; let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t; return ((t^(t>>>14))>>>0)/4294967296; };
+}
+function shuffle(arr,rand){ for (let i=arr.length-1;i>0;i--){ const j=Math.floor(rand()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+function hashStr(s){ let h=2166136261; for (const ch of s){ h^=ch.charCodeAt(0); h=Math.imul(h,16777619); } return h>>>0; }
+function shuffleSections(map,rand){
+  const H=map.length, W=map[0].length;
+  const open=(y,x)=>y>=0&&y<H&&x>=0&&x<W&&map[y][x]===".";
+  const comps=components(map).filter(b=>MOVABLE.has(b.ch));
+  const cap=comps.map(b=>{
+    let n=0;
+    for (let y=b.r0;y<=b.r1;y++) for (let x=b.c0;x<=b.c1;x++)
+      if ([[0,-1],[0,1],[1,0],[-1,0]].some(([dy,dx])=>open(y+dy,x+dx))) n++;
+    return n;
+  });
+  const need={}; for (const id in ITEMS) need[ITEMS[id].s]=(need[ITEMS[id].s]||0)+1;
+  for (let t=0;t<300;t++){
+    const p=shuffle(comps.map(b=>b.ch),rand), capBy={};
+    p.forEach((ch,i)=>{ capBy[ch]=(capBy[ch]||0)+cap[i]; });
+    if (!Object.keys(capBy).every(ch=>(need[ch]||0)<=capBy[ch])) continue;
+    const g=map.map(row=>row.split(""));
+    comps.forEach((b,i)=>{ for (let y=b.r0;y<=b.r1;y++) for (let x=b.c0;x<=b.c1;x++) g[y][x]=p[i]; });
+    return g.map(a=>a.join(""));
+  }
+  return map;
+}
+function prepareStore(store,seed){
+  const rand = seed==null ? null : rng(seed);
+  const map = rand ? shuffleSections(store.map,rand) : store.map;
+  const H=map.length, W=map[0].length;
+  const walk=(r,c)=>r>=0&&r<H&&c>=0&&c<W&&map[r][c]===".";
+  const cells={};
+  for (let r=0;r<H;r++) for (let c=0;c<W;c++){
+    const ch=map[r][c]; if (ch===".") continue;
+    for (const [dr,dc] of [[0,-1],[0,1],[1,0],[-1,0]]){
+      if (walk(r+dr,c+dc)){ (cells[ch]||(cells[ch]=[])).push({r,c,pr:r+dr,pc:c+dc}); break; }
+    }
+  }
+  const bySec={};
+  for (const id in ITEMS) (bySec[ITEMS[id].s]||(bySec[ITEMS[id].s]=[])).push(id);
+  const pos={};
+  for (const s in bySec){
+    const list=rand ? shuffle(bySec[s].slice(),rand) : bySec[s], cs=cells[s]||[];
+    list.forEach((id,i)=>{ pos[id]=cs[Math.floor(i*cs.length/list.length)]; });
+  }
+  return {W,H,map,walk,pos,comps:components(map),start:store.start,end:store.end};
+}
+STORES.forEach(s=>{ s.prep=prepareStore(s); });
+
+// ---- ゲームの現在状態 ----
+let P, W, H, SK, EK, bfsCache;
+const st = {store:STORES[1], menu:MENUS.find(m=>m.id==="nikujaga"), order:[], phase:"plan", showBest:false, replay:false, best:null, walker:null};
+
+// ---- 自分のキャラクター ----
+const ANIMALS=["🐶","🐱","🐰"];
+const CHAR_KEY="otsukai-char", PHOTO_KEY="otsukai-photo";
+let photo=null;
+st.char={type:"emoji",v:"🐱"};
+try {
+  photo=localStorage.getItem(PHOTO_KEY);
+  const saved=JSON.parse(localStorage.getItem(CHAR_KEY)||"null");
+  if (saved && saved.type==="emoji" && ANIMALS.includes(saved.v)) st.char=saved;
+  if (saved && saved.type==="photo" && photo) st.char={type:"photo",v:photo};
+} catch(_) {}
+function saveChar(){
+  try { localStorage.setItem(CHAR_KEY,JSON.stringify(st.char.type==="photo"?{type:"photo"}:st.char)); } catch(_) {}
+}
+const charHTML=()=>st.char.type==="photo" ? `<img src="${st.char.v}" alt="" style="width:1.4em;height:1.4em;border-radius:50%;object-fit:cover;vertical-align:-.35em">` : st.char.v;
+function shrinkPhoto(file){
+  return new Promise((ok,ng)=>{
+    const fr=new FileReader();
+    fr.onerror=ng;
+    fr.onload=()=>{
+      const img=new Image();
+      img.onerror=ng;
+      img.onload=()=>{
+        const S=160, cv=document.createElement("canvas"); cv.width=cv.height=S;
+        const m=Math.min(img.width,img.height);
+        cv.getContext("2d").drawImage(img,(img.width-m)/2,(img.height-m)/2,m,m,0,0,S,S);
+        ok(cv.toDataURL("image/jpeg",.85));
+      };
+      img.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+const key=(r,c)=>r*W+c;
+
+function loadStore(prep){
+  P=prep; W=P.W; H=P.H; bfsCache=new Map();
+  SK=key(P.start[0],P.start[1]); EK=key(P.end[0],P.end[1]);
+}
+function bfs(src){
+  if (bfsCache.has(src)) return bfsCache.get(src);
+  const dist=new Int16Array(W*H).fill(-1), prev=new Int16Array(W*H).fill(-1), q=[src];
+  dist[src]=0;
+  for (let i=0;i<q.length;i++){
+    const k=q[i], r=(k/W)|0, c=k%W;
+    for (const [dr,dc] of [[-1,0],[1,0],[0,-1],[0,1]]){
+      const nr=r+dr, nc=c+dc;
+      if (!P.walk(nr,nc)) continue;
+      const nk=key(nr,nc);
+      if (dist[nk]>=0) continue;
+      dist[nk]=dist[k]+1; prev[nk]=k; q.push(nk);
+    }
+  }
+  const res={dist,prev}; bfsCache.set(src,res); return res;
+}
+const D=(a,b)=>bfs(a).dist[b];
+function cellPath(a,b){
+  const {prev}=bfs(a); const out=[]; let k=b;
+  while (k!==a && k>=0){ out.push(k); k=prev[k]; }
+  out.push(a); return out.reverse();
+}
+const pk=id=>key(P.pos[id].pr,P.pos[id].pc);
+
+function evaluate(order){
+  const pts=[SK,...order.map(pk),EK];
+  const legs=[]; for (let i=0;i<pts.length-1;i++) legs.push(D(pts[i],pts[i+1]));
+  const move=legs.reduce((a,b)=>a+b,0);
+  let melt=0; const melted=[];
+  order.forEach((id,k)=>{
+    if (!has(id,"frozen")) return;
+    let s=0; for (let j=k+1;j<legs.length;j++) s+=legs[j];
+    const over=Math.max(0,s-st.store.melt);
+    if (over){ melt+=over*2; melted.push({id,s}); }
+  });
+  const ei=order.findIndex(id=>has(id,"fragile"));
+  const crushedBy=ei>=0 ? order.slice(ei+1).find(id=>has(id,"heavy")) : null;
+  const crush=crushedBy?CRUSH:0;
+  return {move,melt,melted,crush,crushedBy,total:move+melt+crush};
+}
+function solve(items){
+  let best=null; const used=new Array(items.length).fill(false), cur=[];
+  (function rec(){
+    if (cur.length===items.length){
+      const e=evaluate(cur);
+      if (!best||e.total<best.total) best={...e,order:cur.slice()};
+      return;
+    }
+    for (let i=0;i<items.length;i++){
+      if (used[i]) continue;
+      used[i]=true; cur.push(items[i]); rec(); cur.pop(); used[i]=false;
+    }
+  })();
+  return best;
+}
+
+const $=id=>document.getElementById(id);
+const cx=c=>c*C+C/2, cy=r=>r*C+C/2;
+const stars=n=>"★".repeat(n)+"☆".repeat(3-n);
+
+// ---- 1画面目 ----
+function miniMap(store){
+  const p=store.prep, w=p.W*C, h=p.H*C;
+  let s=`<svg class="mini" viewBox="0 0 ${w} ${h}" aria-hidden="true"><rect width="${w}" height="${h}" fill="#F7F9F5"/>`;
+  for (const b of p.comps) s+=`<rect x="${b.c0*C+4}" y="${b.r0*C+4}" width="${(b.c1-b.c0+1)*C-8}" height="${(b.r1-b.r0+1)*C-8}" rx="8" fill="${SEC[b.ch].c}"/>`;
+  s+=`<circle cx="${cx(p.start[1])}" cy="${cy(p.start[0])}" r="16" fill="#1E2A23"/><circle cx="${cx(p.end[1])}" cy="${cy(p.end[0])}" r="16" fill="#FFD23F" stroke="#1E2A23" stroke-width="5"/></svg>`;
+  return s;
+}
+// ---- プレイ記録（本人だけが見られる場所に保存。使えないときはこのブラウザに保存） ----
+let plays=[], recMode="loading", playsRef=null;
+const LOCAL_PLAYS="otsukai-plays";
+function loadLocalPlays(){
+  try { plays=JSON.parse(localStorage.getItem(LOCAL_PLAYS)||"[]"); } catch(_) { plays=[]; }
+  if (!Array.isArray(plays)) plays=[];
+  recMode="local";
+}
+function saveLocalPlays(){ try { localStorage.setItem(LOCAL_PLAYS,JSON.stringify(plays.slice(0,300))); } catch(_) {} }
+async function initRecords(){
+  const timer=setTimeout(()=>{ if (recMode==="loading"){ loadLocalPlays(); renderSetup(); } },10000);
+  try {
+    const c=window.claude;
+    const [db,user]=c && c.use ? await Promise.all([c.use("db"),c.use("user")]) : [null,null];
+    const uid=user ? await user.id() : null;
+    if (db && uid){
+      playsRef=db.doc("data/users/"+uid+"/profile").collection("plays");
+      const snap=await playsRef.orderBy("at","desc").limit(500).get();
+      plays=snap.docs.map(d=>d.data());
+      recMode="cloud";
+    } else loadLocalPlays();
+  } catch(_) { playsRef=null; loadLocalPlays(); }
+  clearTimeout(timer);
+  renderSetup();
+}
+function savePlay(rec){
+  plays.unshift(rec);
+  if (playsRef && recMode==="cloud"){
+    playsRef.add(rec).catch(()=>{ recMode="local"; playsRef=null; saveLocalPlays(); });
+  } else saveLocalPlays();
+}
+function bestOf(storeId,menuId){
+  let b=null;
+  for (const p of plays) if (p.store===storeId && p.menu===menuId && (b===null || p.pct>b)) b=p.pct;
+  return b;
+}
+function renderRecords(){
+  const total=STORES.length*MENUS.length;
+  const combos=new Set(plays.map(p=>p.store+"/"+p.menu));
+  const kami=new Set(plays.filter(p=>p.pct>=100).map(p=>p.store+"/"+p.menu));
+  const avg=plays.length ? Math.round(plays.reduce((a,p)=>a+p.pct,0)/plays.length) : 0;
+  const stat=(v,unit,label,bar)=>`<div class="rec-stat"><b>${v}<small>${unit}</small></b><span>${label}</span>${bar!=null?`<div class="bar"><i style="width:${bar}%"></i></div>`:""}</div>`;
+  $("recStats").innerHTML =
+    stat(plays.length,"回","おつかい回数") +
+    stat(plays.length?avg:"–",plays.length?"%":"","平均すっきり度") +
+    stat(combos.size,`/${total}`,"挑戦した組み合わせ",combos.size/total*100) +
+    stat(kami.size,`/${total}`,"神ルート達成",kami.size/total*100);
+  const sName=id=>(STORES.find(s=>s.id===id)||{}).n||id, mName=id=>(MENUS.find(m=>m.id===id)||{}).n||id;
+  const pad=n=>String(n).padStart(2,"0");
+  $("recList").innerHTML = plays.length ? plays.slice(0,20).map(p=>{
+    const d=new Date(p.at);
+    return `<li><span>${pad(d.getMonth()+1)}/${pad(d.getDate())}</span><span class="what">${p.mode==="daily"?"📅":p.mode==="shuffle"?"🔀":""}${p.timed?"⏱":""}${sName(p.store)}・${mName(p.menu)}</span><span>${p.steps}/${p.best}歩</span><span class="pct ${p.pct>=100?"k":""}">${p.pct>=100?"👑":""}${p.pct}%</span></li>`;
+  }).join("") : `<li class="empty">まだ記録がありません。1回目のおつかいに行ってみましょう。</li>`;
+  $("recNote").textContent = recMode==="loading" ? "記録を読み込んでいます…"
+    : recMode==="cloud" ? "記録はあなただけが見られる場所に保存されます。"
+    : "記録はこのブラウザに保存されます（ほかの端末には引き継がれません）。";
+}
+
+function renderSetup(){
+  renderRecords();
+  renderDaily();
+  renderOpts();
+  $("charNow").innerHTML=charHTML();
+  const isE=v=>st.char.type==="emoji" && st.char.v===v;
+  $("charPick").innerHTML=ANIMALS.map(a=>`<button class="char" data-char="${a}" aria-pressed="${isE(a)}" aria-label="キャラクター ${a}">${a}</button>`).join("")
+    + (photo ? `<button class="char" data-photo="1" aria-pressed="${st.char.type==="photo"}" aria-label="自分の写真"><img src="${photo}" alt=""></button>` : "")
+    + `<button class="char add" id="photoBtn">＋<br>${photo?"写真を<br>変える":"写真"}</button>`;
+  $("storePick").innerHTML=STORES.map(s=>`<button class="pick" data-store="${s.id}" aria-pressed="${s===st.store}">
+    ${miniMap(s)}
+    <span class="kind">${s.kind}</span>
+    <span class="ttl">${s.n}</span>
+    <span class="desc">${s.desc}</span>
+    <span class="meta"><span class="chip">${s.prep.W}×${s.prep.H}マス</span><span class="chip">冷凍は${s.melt}歩まで</span><span class="chip kami">👑 ${MENUS.filter(m=>bestOf(s.id,m.id)>=100).length}/${MENUS.length}</span></span>
+  </button>`).join("");
+  $("menuPick").innerHTML=MENUS.map(m=>{
+    const b=bestOf(st.store.id,m.id);
+    const badge = b===null ? `<span class="chip">未挑戦</span>` : b>=100 ? `<span class="chip kami">👑 神ルート</span>` : `<span class="chip best">ベスト ${b}%</span>`;
+    return `<button class="pick" data-menu="${m.id}" aria-pressed="${m===st.menu}">
+    <span class="ttl">${m.n}</span>
+    <span class="stars" aria-label="難しさ${m.stars}">${stars(m.stars)}</span>
+    <span class="emos">${m.items.map(id=>ITEMS[id].e).join("")}</span>
+    <span class="meta">${badge}<span class="chip">${m.items.length}品</span>${m.rules.map(r=>`<span class="chip">${r}</span>`).join("")}</span>
+  </button>`;
+  }).join("");
+  const extra=[opts.shuffle?"売り場シャッフル":"", opts.timer?`制限時間${timeLimitFor(st.menu)}秒`:""].filter(Boolean).join("・");
+  $("startSummary").innerHTML=`${charHTML()} が <b>${st.store.n}</b>（${st.store.kind}）で <b>${st.menu.n}</b> の材料 ${st.menu.items.length}品を買う${extra?`（${extra}）`:""}`;
+}
+$("storePick").addEventListener("click",e=>{ const b=e.target.closest("[data-store]"); if (!b) return; st.store=STORES.find(s=>s.id===b.dataset.store); renderSetup(); });
+$("menuPick").addEventListener("click",e=>{ const b=e.target.closest("[data-menu]"); if (!b) return; st.menu=MENUS.find(m=>m.id===b.dataset.menu); renderSetup(); });
+$("charPick").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if (!b) return;
+  if (b.id==="photoBtn") { $("photoIn").click(); return; }
+  if (b.dataset.photo) st.char={type:"photo",v:photo};
+  else if (b.dataset.char) st.char={type:"emoji",v:b.dataset.char};
+  saveChar(); renderSetup(); closeModals();
+});
+function openModal(id){ $(id).hidden=false; const c=$(id).querySelector("[data-close]"); c && c.focus(); }
+function closeModals(){ $("recModal").hidden=true; $("charModal").hidden=true; }
+$("openRec").onclick=()=>openModal("recModal");
+$("openChar").onclick=()=>openModal("charModal");
+for (const id of ["recModal","charModal"]){
+  $(id).addEventListener("click",e=>{ if (e.target===$(id) || e.target.closest("[data-close]")) closeModals(); });
+}
+document.addEventListener("keydown",e=>{ if (e.key==="Escape") closeModals(); });
+$("photoIn").addEventListener("change",async e=>{
+  const f=e.target.files && e.target.files[0]; e.target.value="";
+  if (!f) return;
+  try {
+    photo=await shrinkPhoto(f);
+    st.char={type:"photo",v:photo};
+    try { localStorage.setItem(PHOTO_KEY,photo); } catch(_) {}
+    saveChar(); renderSetup(); closeModals();
+  } catch(_) {}
+});
+// ---- 遊び方のオプション・日替わり ----
+const OPTS_KEY="otsukai-opts";
+const opts={shuffle:false,timer:false};
+try { Object.assign(opts,JSON.parse(localStorage.getItem(OPTS_KEY)||"{}")); } catch(_) {}
+const pad2=n=>String(n).padStart(2,"0");
+const timeLimitFor=menu=>10+8*menu.items.length;
+function daily(){
+  const d=new Date(), day=`${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const seed=hashStr("otsukai:"+day), rand=rng(seed);
+  const store=STORES[Math.floor(rand()*STORES.length)];
+  const pool=MENUS.filter(m=>m.stars>=2);
+  const menu=pool[Math.floor(rand()*pool.length)];
+  return {day,seed,store,menu,label:`${d.getMonth()+1}/${d.getDate()}`};
+}
+function renderDaily(){
+  const d=daily();
+  let best=null;
+  for (const p of plays) if (p.mode==="daily" && p.day===d.day && (best===null||p.pct>best)) best=p.pct;
+  $("daily").innerHTML=`<div class="daily-l">
+      <span class="daily-tag">今日のおつかい ${d.label}</span>
+      <b>${d.store.n} × ${d.menu.n}</b>
+      <span class="emos">${d.menu.items.map(id=>ITEMS[id].e).join("")}</span>
+      <small>売り場の並びは今日だけの特別版。毎日0時に新しいお題に変わります。</small>
+    </div>
+    <div class="daily-r">
+      <span class="daily-best">${best===null?"まだ挑戦していません":best>=100?"👑 今日は神ルート達成":`今日のベスト ${best}%`}</span>
+      <button class="btn-start" id="dailyBtn">挑戦する</button>
+    </div>`;
+}
+$("daily").addEventListener("click",e=>{ if (e.target.closest("#dailyBtn")) startGame("daily"); });
+function renderOpts(){
+  $("optShuffle").setAttribute("aria-pressed",opts.shuffle);
+  $("optTimer").setAttribute("aria-pressed",opts.timer);
+}
+function toggleOpt(k){ opts[k]=!opts[k]; try { localStorage.setItem(OPTS_KEY,JSON.stringify(opts)); } catch(_) {} renderSetup(); }
+$("optShuffle").onclick=()=>toggleOpt("shuffle");
+$("optTimer").onclick=()=>toggleOpt("timer");
+
+function startGame(mode){
+  st.mode=mode;
+  if (mode==="daily"){
+    const d=daily();
+    st.prevSel={store:st.store,menu:st.menu};
+    st.store=d.store; st.menu=d.menu; st.seed=d.seed; st.day=d.day; st.timed=false;
+  } else {
+    st.mode = opts.shuffle ? "shuffle" : "normal";
+    st.seed = opts.shuffle ? (Math.random()*4294967296)>>>0 : null;
+    st.day=null; st.timed=opts.timer;
+  }
+  loadStore(st.seed==null ? st.store.prep : prepareStore(st.store,st.seed));
+  st.best=solve(st.menu.items);
+  resetRoute();
+  $("setupView").hidden=true; $("gameView").hidden=false;
+  window.scrollTo({top:0});
+}
+$("startBtn").onclick=()=>startGame("normal");
+
+// ---- 制限時間 ----
+let timerId=null;
+function stopTimer(){ if (timerId) clearInterval(timerId); timerId=null; }
+function startTimer(){
+  stopTimer(); st.timeout=false;
+  $("timer").hidden=!st.timed;
+  if (!st.timed) return;
+  const limit=timeLimitFor(st.menu), end=performance.now()+limit*1000;
+  const tick=()=>{
+    const left=Math.max(0,(end-performance.now())/1000);
+    $("tleft").textContent=`${Math.ceil(left)}秒`;
+    $("tfill").style.width=`${left/limit*100}%`;
+    $("timer").classList.toggle("low",left<=10);
+    if (left<=0){ stopTimer(); timeUp(); }
+  };
+  tick(); timerId=setInterval(tick,100);
+}
+function timeUp(){
+  if (st.phase!=="plan") return;
+  st.timeout=true;
+  for (const id of st.menu.items) if (!st.order.includes(id)) st.order.push(id);
+  goRegister();
+}
+
+$("backBtn").onclick=()=>{
+  if (st.phase==="walking"||st.replay) return;
+  stopTimer();
+  if (st.prevSel){ st.store=st.prevSel.store; st.menu=st.prevSel.menu; st.prevSel=null; }
+  hideReveal(); $("gameView").hidden=true; $("setupView").hidden=false; renderSetup();
+};
+
+// ---- 2画面目 ----
+function partialSteps(){
+  const pts=[SK,...st.order.map(pk)];
+  let s=0; for (let i=0;i<pts.length-1;i++) s+=D(pts[i],pts[i+1]);
+  return s;
+}
+function routeKeys(order,toEnd){
+  const pts=[SK,...order.map(pk)]; if (toEnd) pts.push(EK);
+  let all=[SK];
+  for (let i=0;i<pts.length-1;i++) all=all.concat(cellPath(pts[i],pts[i+1]).slice(1));
+  return all;
+}
+const polyPts=keys=>keys.map(k=>`${cx(k%W)},${cy((k/W)|0)}`).join(" ");
+function markerPos(id){
+  const p=P.pos[id];
+  return {x:cx(p.c)+(p.pc-p.c)*C*0.3, y:cy(p.r)+(p.pr-p.r)*C*0.3};
+}
+
+function renderMap(){
+  const svg=$("map"), VH=H*C+46;
+  svg.setAttribute("viewBox",`0 0 ${W*C} ${VH}`);
+  let s=`<defs><pattern id="tile" width="${C}" height="${C}" patternUnits="userSpaceOnUse"><rect width="${C}" height="${C}" fill="#F7F9F5"/><path d="M${C} 0H0V${C}" fill="none" stroke="#E6ECE5" stroke-width="1"/></pattern></defs>`;
+  s+=`<rect x="0" y="0" width="${W*C}" height="${H*C}" fill="url(#tile)"/>`;
+  const lbl=`font-size="10" font-weight="700" fill="#1E2A23" fill-opacity=".7" text-anchor="middle"`;
+  for (const b of P.comps){
+    const x=b.c0*C+3, y=b.r0*C+3, w=(b.c1-b.c0+1)*C-6, h=(b.r1-b.r0+1)*C-6;
+    s+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="${SEC[b.ch].c}" stroke="rgba(30,42,35,.18)"/>`;
+    const n=SEC[b.ch].n;
+    if (b.c0===b.c1 && b.r1>b.r0) s+=`<text x="${(b.c0+1)*C-10}" y="${(b.r0+b.r1+1)*C/2}" ${lbl} dominant-baseline="central" style="writing-mode:vertical-rl;font-family:var(--font-body)">${n}</text>`;
+    else if (b.r0===b.r1) s+=`<text x="${(b.c0+b.c1+1)*C/2}" y="${b.r0*C+13}" ${lbl} style="font-family:var(--font-body)">${n}</text>`;
+    else s+=`<text x="${(b.c0+b.c1+1)*C/2}" y="${(b.r0+b.r1+1)*C/2}" ${lbl} dominant-baseline="central" style="font-family:var(--font-body)">${n}</text>`;
+  }
+  // 下の壁・入口・レジ
+  const by=H*C, [sr,sc]=P.start, [er,ec]=P.end;
+  s+=`<rect x="0" y="${by}" width="${W*C}" height="46" fill="#D7DFD9"/>`;
+  s+=`<rect x="${sc*C+4}" y="${by}" width="${C-8}" height="8" fill="#F7F9F5"/><text x="${cx(sc)}" y="${by+30}" font-size="12" font-weight="700" text-anchor="middle" fill="#1E2A23" style="font-family:var(--font-display)">入口</text>`;
+  for (let c=ec-1;c<=ec+1;c++){
+    if (c<0||c>=W) continue;
+    s+=`<rect x="${c*C+6}" y="${by+6}" width="${C-12}" height="22" rx="4" fill="#1E2A23"/><text x="${cx(c)}" y="${by+21}" font-size="10" fill="#FFD23F" text-anchor="middle" font-weight="700" style="font-family:var(--font-body)">レジ</text>`;
+  }
+  s+=`<circle cx="${cx(sc)}" cy="${cy(sr)}" r="9" fill="#1E2A23"/><text x="${cx(sc)}" y="${cy(sr)+4}" font-size="10" fill="#fff" text-anchor="middle" font-weight="700">S</text>`;
+  s+=`<circle cx="${cx(ec)}" cy="${cy(er)}" r="9" fill="#FFD23F" stroke="#1E2A23" stroke-width="2"/><text x="${cx(ec)}" y="${cy(er)+4}" font-size="10" fill="#1E2A23" text-anchor="middle" font-weight="700">G</text>`;
+
+  const dim=st.showBest && st.best;
+  if (st.order.length){
+    const done=st.phase!=="plan";
+    s+=`<polyline points="${polyPts(routeKeys(st.order,done))}" fill="none" stroke="#E4572E" stroke-width="${dim?2:4.5}" stroke-linejoin="round" stroke-linecap="round" opacity="${dim?.15:.85}"/>`;
+  }
+  if (dim) s+=`<polyline points="${polyPts(routeKeys(st.best.order,true))}" fill="none" stroke="#1F7A72" stroke-width="5" stroke-dasharray="10 6" stroke-linejoin="round" stroke-linecap="round"/>`;
+  for (const id of st.menu.items){
+    const it=ITEMS[id], p=markerPos(id), idx=st.order.indexOf(id);
+    const clickable=st.phase==="plan" && (idx<0 || idx===st.order.length-1);
+    const ring=dim ? "#1F7A72" : (idx>=0 ? "#E4572E" : "#1E2A23");
+    s+=`<g class="marker${clickable?"":" off"}" data-id="${id}">`;
+    s+=`<circle cx="${p.x}" cy="${p.y}" r="19" fill="#fff" stroke="${ring}" stroke-width="${dim||idx>=0?3:1.5}"/>`;
+    s+=`<text x="${p.x}" y="${p.y+1}" font-size="23" text-anchor="middle" dominant-baseline="central">${it.e}</text>`;
+    if (idx>=0 && !dim) s+=`<circle cx="${p.x+15}" cy="${p.y-15}" r="10" fill="#E4572E" stroke="#fff" stroke-width="1.5"/><text x="${p.x+15}" y="${p.y-11}" font-size="12" font-weight="900" fill="#fff" text-anchor="middle">${idx+1}</text>`;
+    if (dim){
+      const bi=st.best.order.indexOf(id)+1;
+      s+=`<circle cx="${p.x+15}" cy="${p.y-15}" r="11" fill="#1F7A72" stroke="#fff" stroke-width="1.5"/><text x="${p.x+15}" y="${p.y-11}" font-size="13" font-weight="900" fill="#fff" text-anchor="middle">${bi}</text>`;
+    }
+    s+=`</g>`;
+  }
+  // 自分のキャラ：計画中は入口、歩き終わったらレジの前に立つ
+  const rest = st.phase==="done" ? {x:cx(ec),y:cy(er)} : {x:cx(sc),y:cy(sr)};
+  const w=st.walker || rest;
+  const face = st.char.type==="photo"
+    ? `<image href="${st.char.v}" x="-16" y="-16" width="32" height="32" clip-path="url(#faceClip)" preserveAspectRatio="xMidYMid slice"/>`
+    : `<text y="1.5" font-size="24" text-anchor="middle" dominant-baseline="central">${st.char.v}</text>`;
+  s+=`<clipPath id="faceClip"><circle r="16"/></clipPath>`;
+  s+=`<g id="shopper" transform="translate(${w.x},${w.y})"><circle r="19" fill="#fff" stroke="${st.replay?"#1F7A72":"#E4572E"}" stroke-width="4"/>${face}<text x="17" y="15" font-size="14" text-anchor="middle" dominant-baseline="central">🛒</text></g>`;
+  svg.innerHTML=s;
+}
+
+function renderPanel(){
+  const tag = st.mode==="daily" ? "📅 今日のおつかい：" : st.mode==="shuffle" ? "🔀 シャッフル配置：" : "";
+  $("gameTitle").innerHTML=`${tag}${charHTML()} が <b>${st.store.n}</b>（${st.store.kind}）で <b>${st.menu.n}</b> の材料を買う`;
+  $("list").innerHTML=st.menu.items.map(id=>{
+    const it=ITEMS[id], idx=st.order.indexOf(id);
+    const can=st.phase==="plan" && (idx<0 || idx===st.order.length-1);
+    const pills=(it.t||[]).map(t=>`<span class="pill ${t}">${{frozen:"冷凍",fragile:"われもの",heavy:"重い"}[t]}</span>`).join("");
+    return `<li><button data-id="${id}" class="${idx>=0?"picked":""}" ${can?"":"disabled"} aria-label="${it.n}${idx>=0?`（${idx+1}番目に取る）`:""}"><span class="num">${idx>=0?idx+1:""}</span><span class="emo">${it.e}</span><span class="nm">${it.n}</span><span class="pills">${pills}</span></button></li>`;
+  }).join("");
+  if (st.phase!=="walking" && !st.replay) $("steps").textContent = st.phase==="done" ? evaluate(st.order).move : partialSteps();
+  $("got").textContent=`${st.order.length}/${st.menu.items.length}`;
+  $("par").textContent=st.best ? st.best.total : "–";
+  $("undo").disabled=st.phase!=="plan" || !st.order.length;
+  $("reset").disabled=st.phase==="walking" || st.replay || (!st.order.length && st.phase==="plan");
+  $("go").disabled=st.phase!=="plan" || st.order.length!==st.menu.items.length;
+  $("backBtn").disabled=st.phase==="walking" || st.replay;
+  $("rules").innerHTML=`
+    <li><b>冷凍品</b>はカゴに入れてからレジまで${st.store.melt}歩をこえると溶けはじめる。こえた分×2歩を加算。</li>
+    <li><b>卵</b>のあとに<b>重いもの</b>（米・水・ビール）を入れると卵がつぶれて買い直し。+${CRUSH}歩。</li>
+    <li>商品は棚の<b>通路側</b>からしか取れない。ゴンドラの裏側は回りこみが必要。</li>`;
+}
+function render(){ renderMap(); renderPanel(); }
+
+function toggle(id){
+  if (st.phase!=="plan") return;
+  const idx=st.order.indexOf(id);
+  if (idx<0) st.order.push(id);
+  else if (idx===st.order.length-1) st.order.pop();
+  render();
+}
+function resetRoute(){ hideReveal(); st.order=[]; st.phase="plan"; st.showBest=false; st.replay=false; st.walker=null; $("result").hidden=true; render(); startTimer(); }
+
+// 効果音（レジへ向かうボタンのクリックで音を有効化）
+let actx=null;
+function unlockAudio(){
+  try { actx=actx || new (window.AudioContext||window.webkitAudioContext)(); if (actx.state==="suspended") actx.resume(); }
+  catch(_) { actx=null; }
+}
+function blip(freq,dur,type="square",vol=.05,when=0){
+  if (!actx) return;
+  const t=actx.currentTime+when, o=actx.createOscillator(), g=actx.createGain();
+  o.type=type; o.frequency.value=freq;
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t+dur+.05);
+}
+function chingSound(){
+  blip(160,.07,"square",.12);
+  [2093,2637,3136].forEach((f,i)=>blip(f,1.2,"sine",.1,.05+i*.025));
+}
+function hideReveal(){ const rv=$("reveal"); rv.hidden=true; rv.classList.remove("done"); }
+function showReveal(pct,grade,e,b,onClose){
+  const rv=$("reveal");
+  rv.classList.remove("done"); rv.hidden=false;
+  $("rvGrade").textContent=grade[0];
+  $("rvSub").textContent=`あなた ${e.total}歩 ／ 最短 ${b.total}歩`;
+  const dur=matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 1600;
+  const t0=performance.now(); let last=-999;
+  (function tick(t){
+    const k=t-t0;
+    if (k<dur){
+      const gap=45+(k/dur)*180; // だんだんゆっくり
+      if (k-last>gap){ last=k; $("rvPct").textContent=String(10+Math.floor(Math.random()*90)); blip(900+Math.random()*400,.03,"square",.03); }
+      requestAnimationFrame(tick);
+    } else {
+      $("rvPct").textContent=pct; rv.classList.add("done"); chingSound();
+    }
+  })(t0);
+  rv.onclick=()=>{ if (!rv.classList.contains("done")) return; hideReveal(); onClose&&onClose(); };
+}
+
+function goRegister(){
+  stopTimer();
+  unlockAudio();
+  st.phase="walking"; render();
+  walkAlong(routeKeys(st.order,true), finish);
+}
+function walkAlong(keys,onDone){
+  const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const speed=9; // マス/秒
+  const t0=performance.now();
+  const shopper=$("shopper");
+  function frame(t){
+    const f=reduce ? keys.length-1 : Math.min(keys.length-1,(t-t0)/1000*speed);
+    const i=Math.floor(f), fr=f-i, a=keys[i], b=keys[Math.min(i+1,keys.length-1)];
+    const x=cx(a%W)+(cx(b%W)-cx(a%W))*fr, y=cy((a/W)|0)+(cy((b/W)|0)-cy((a/W)|0))*fr;
+    st.walker={x,y};
+    shopper.setAttribute("transform",`translate(${x},${y})`);
+    $("steps").textContent=Math.floor(f);
+    if (f<keys.length-1) requestAnimationFrame(frame); else onDone();
+  }
+  requestAnimationFrame(frame);
+}
+function finish(){
+  st.phase="done"; st.showBest=false; st.walker=null;
+  const e=evaluate(st.order), b=st.best;
+  const pct=Math.round(b.total/e.total*100);
+  const prevBest=bestOf(st.store.id,st.menu.id);
+  $("rvBest").hidden = !(prevBest!==null && pct>prevBest);
+  savePlay({store:st.store.id, menu:st.menu.id, steps:e.total, best:b.total, pct, at:new Date().toISOString(), mode:st.mode, day:st.day||null, timed:!!st.timed, timeout:!!st.timeout});
+  const grade = pct>=100 ? ["神ルート！","最短と同じ。すっきり。"] : pct>=90 ? ["かなりすっきり","あと少しで最短"] : pct>=75 ? ["まあまあ","どこかで遠回りしてるかも"] : ["迷子ぎみ…","最短ルートで歩いてみよう"];
+  const d=new Date(), pad=n=>String(n).padStart(2,"0");
+  const row=(l,v,cls="")=>`<div class="row ${cls}"><span>${l}</span><span class="dots"></span><span class="v">${v}</span></div>`;
+  let h=`<div class="shop">${st.store.n}</div><div class="date">${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}　${st.menu.n} ${st.menu.items.length}点</div><hr>`;
+  if (st.timeout) h+=row("時間切れ（残りはメモ順に取った）","⏱","warn");
+  h+=row("歩いた距離",`${e.move}歩`);
+  e.melted.forEach(m=>{ h+=row(`${ITEMS[m.id].n}が溶けかけ`,`+${(m.s-st.store.melt)*2}歩`,"warn"); });
+  if (e.crush) h+=row(`卵がつぶれた（${ITEMS[e.crushedBy].n}）`,`+${e.crush}歩`,"warn");
+  h+=`<hr>`+row("合計",`${e.total}歩`,"total")+row("最短ルート",`${b.total}歩`)+`<hr>`;
+  h+=`<div class="grade">すっきり度 ${pct}%<small>${grade[0]}　${grade[1]}</small></div>`;
+  h+=`<div class="btns"><button class="btn" id="showBest">最短ルートを重ねる</button><button class="btn" id="walkBest">最短ルートで歩いてみる</button><button class="btn primary" id="again">もう一回</button>${st.mode==="shuffle"?`<button class="btn primary" id="nextLayout">配置を変えて次へ</button>`:""}</div>`;
+  h+=`<div class="bestorder" id="bestorder" hidden>最短の順番：${b.order.map(id=>ITEMS[id].n).join(" → ")} → レジ${b.melt||b.crush?`（ペナルティ込み、移動${b.move}歩）`:""}</div>`;
+  const r=$("result"); r.innerHTML=h; r.hidden=false;
+  $("showBest").onclick=()=>{ st.showBest=!st.showBest; $("showBest").textContent=st.showBest?"最短ルートを消す":"最短ルートを重ねる"; $("bestorder").hidden=!st.showBest; renderMap(); };
+  $("again").onclick=resetRoute;
+  if (st.mode==="shuffle") $("nextLayout").onclick=()=>startGame("shuffle");
+  $("walkBest").onclick=()=>{
+    const btns=["showBest","walkBest","again"].concat(st.mode==="shuffle"?["nextLayout"]:[]).map($);
+    btns.forEach(x=>x.disabled=true);
+    st.showBest=true; st.replay=true;
+    $("showBest").textContent="最短ルートを消す"; $("bestorder").hidden=false;
+    render();
+    walkAlong(routeKeys(b.order,true),()=>{
+      st.replay=false; st.walker=null;
+      btns.forEach(x=>x.disabled=false);
+      render();
+    });
+  };
+  render();
+  showReveal(pct,grade,e,b,()=>r.scrollIntoView({behavior:"smooth",block:"nearest"}));
+}
+
+$("map").addEventListener("click",e=>{ const g=e.target.closest(".marker"); if (g) toggle(g.dataset.id); });
+$("list").addEventListener("click",e=>{ const b=e.target.closest("button[data-id]"); if (b) toggle(b.dataset.id); });
+$("undo").onclick=()=>{ st.order.pop(); render(); };
+$("reset").onclick=resetRoute;
+$("go").onclick=goRegister;
+
+renderSetup();
+initRecords();
+</script>
+
+</html>
